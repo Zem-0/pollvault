@@ -59,35 +59,24 @@ const Page: React.FC<PageProps> = ({ params }) => {
   const conversation = useSelector((state: RootState) => state.conversation);
   //this is for mobile phone
   const [activeLink, setActiveLink] = useState<string>("poll");
-  const [conversationHistory, setConversationHistory] = useState<Question[]>(
-    []
-  );
-  const [freeTextAnswer, setFreeTextAnswer] = useState("");
   const [remainingTime, setRemainingTime] = useState<number>(0);
   const [uniqueId, setUniqueId] = useState<string>(uuidv4());
-  const [questionType, setQuestionType] = useState<string>("");
-  const [skipable, setSkipable] = useState<boolean>(false);
-  const [noMoreText, setNoMoreText] = useState<boolean>(false);
   const [startPoll, setStartPoll] = useState<boolean>(false);
   const [intro, setIntro] = useState(false);
   const [profile, setProfile] = useState(false);
   const [feedBack, setFeedback] = useState("");
-  const [selectedOptions, setSelectedOptions] = useState<string[]>([]);
+  const [conversationEndRef, setConversationEndRef] = useState<HTMLDivElement | null>(null);
+  const [scrollableContainerRef, setScrollableContainerRef] = useState<HTMLDivElement | null>(null);
   const [isStartPollLoading, setIsStartPollLoading] = useState(false);
-  const [isSubmitBtnLoading, setIsSubmitBtnLoading] = useState(false);
-  const [isInputBtnLoading, setIsInputBtnLoading] = useState(false);
-  const conversationEndRef = useRef<HTMLDivElement>(null);
-  const scrollableContainerRef = useRef<HTMLDivElement>(null); // Reference for the scrollable container
-  const [newMessageLoading, setnewMessageLoading] = useState(false);
   const [attachment, setAttachment]: any = useState(null);
   const [isAssestPopupOpen, setIsAssestPopupOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [ratingValue, setRatingValue] = useState(0);
-  const feedBacks = [
+  const [feedBacks] = useState([
     { name: "loved", value: "Loved it", icon: "❤️❤️", selectedIcon: "🤍🤍" },
     { name: "liked", value: "Liked it", icon: "😊", selectedIcon: "😊" },
     { name: "disliked", value: "Boo...", icon: "😫", selectedIcon: "😫" },
-  ];
+  ]);
   const [introductions, setIntroductions] = useState<Introductions>({
     title: "",
     instruction: "",
@@ -100,6 +89,26 @@ const Page: React.FC<PageProps> = ({ params }) => {
   const [showConfetti, setShowConfetti] = useState(false);
   const [showPopup, setShowPopup] = useState(false);
   const [stopSurvey, setStopSurvey] = useState(false);
+
+  // State and refs for voice recording
+  const [isConnected, setIsConnected] = useState(false);
+  const [isRecording, setIsRecording] = useState(false);
+  const [isPaused, setIsPaused] = useState(false);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [voiceSurveyCode, setVoiceSurveyCode] = useState('350906'); // Hardcoded survey code
+  const [responderId, setResponderId] = useState('');
+  const [audioBars, setAudioBars] = useState(Array(12).fill(0));
+
+  // State for voice survey progress and time
+  const [voiceProgress, setVoiceProgress] = useState(0); // 0-100
+  const [voiceTimeRemaining, setVoiceTimeRemaining] = useState<number>(0); // in minutes or seconds, adjust as needed
+
+  const wsRef = useRef<WebSocket | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const animationFrameRef = useRef<number | null>(null);
 
   useEffect(() => {
     setUniqueId(uuidv4());
@@ -143,126 +152,244 @@ const Page: React.FC<PageProps> = ({ params }) => {
     recordVisit();
   }, [params.conversation_id]); // Only run when conversation_id changes
 
-  async function startConversation() {
-    setIsStartPollLoading(true);
-    const visitorId = localStorage.getItem("pollvault_visitor_id") || uniqueId;
-
-    try {
-      const response = await getFirstQuestion(
-        params.conversation_id,
-        visitorId
-      );
-
-      if (response?.status == 200) {
-        setQuestionType(
-          response?.data.type === QuestionTypes.MCQ
-            ? QuestionTypes.MCQ
-            : response?.data.type === QuestionTypes.RATING
-            ? QuestionTypes.RATING
-            : QuestionTypes.FREE_TEXT
-        );
-        setRemainingTime(parseInt(response.data.total_time));
-        dispatch(startTheConversation({ current_question: response.data }));
-
-        if (response.data.has_attachment) {
-          setAttachment(response.data.attachment);
-        } else {
-          setAttachment(null);
-        }
-
-        await fetch(
-          `${process.env.NEXT_PUBLIC_BACKEND_PORT}/record-survey-visit/${params.conversation_id}`,
-          {
-            method: "POST",
-            headers: {
-              "Content-Type": "application/json",
-              "visitor-id": visitorId,
-              "visit-type": "start",
-            },
-          }
-        );
-      }
-    } catch (err) {
-      console.error(err);
-    } finally {
-      setIsStartPollLoading(false);
-      setStartPoll(true);
-    }
-  }
-
-  async function NextQuestion(skip: boolean = false) {
-    setIsSubmitBtnLoading(true);
-    setIsInputBtnLoading(true);
-
-    try {
-      const response = await getNextQuestion(
-        freeTextAnswer,
-        conversation.currentQuestion
-      );
-
-      if (response.data.has_attachment) {
-        setAttachment(response.data.attachment);
-      } else {
-        setAttachment(null);
-      }
-
-      if (response?.data.type === QuestionTypes.MCQ) {
-        setQuestionType(QuestionTypes.MCQ);
-      } else if (response?.data.type === QuestionTypes.RATING) {
-        setQuestionType(QuestionTypes.RATING);
-      } else {
-        setQuestionType(QuestionTypes.FREE_TEXT);
-      }
-
-      if (response?.status == 200) {
-        if (response.data.message === "No more questions available") {
-          setNoMoreText(true);
-          // window.location.href = "/thanks";
-        }
-        if (response.data.skipquestion === true) {
-          setSkipable(true);
-        } else {
-          setSkipable(false);
-        }
-
-        dispatch(prevConversation({ current_question: response?.data }));
-
-        if (skip === false) {
-          const current = {
-            ...conversation.currentQuestion.current_question,
-            answer: freeTextAnswer,
-            ratingValue,
-            attachment: attachment ? attachment : null,
-          };
-
-          setConversationHistory((prevHistory) => [...prevHistory, current]);
-        }
-      }
-    } catch (err) {
-      console.log(err);
-    } finally {
-      setSelectedOptions([]);
-      setIsSubmitBtnLoading(false);
-      setIsInputBtnLoading(false);
-      setFreeTextAnswer("");
-      setRatingValue(0);
-
-      // Trigger fake loading for the next question
-      setnewMessageLoading(true); // Show loader
-      setTimeout(() => {
-        setnewMessageLoading(false); // Hide loader after 2 seconds
-      }, 1500);
-    }
-  }
+  // WebSocket and Audio Logic from ws_voice.js
 
   useEffect(() => {
-    const intervalId = setInterval(() => {
-      setRemainingTime((prevTime) => prevTime - 1);
-    }, 1000 * 60);
+    // Generate random responder ID if not already set (though ws_voice uses a fixed one initially)
+    // For now, let's use the uniqueId from the conversation state
+    setResponderId(uniqueId);
 
-    // Clean up the interval when the component unmounts
-    return () => clearInterval(intervalId);
-  }, []); //
+    return () => {
+      disconnect();
+    };
+  }, [uniqueId]); // Depend on uniqueId
+
+  const connect = async () => {
+    try {
+      console.log('Attempting to connect to voice survey WebSocket...');
+      // Use the hardcoded base URL for the WebSocket connection
+      const wsUrl = `ws://localhost:8002/survey/voice/${voiceSurveyCode}?responder_id=${responderId}`;
+      console.log(`WebSocket URL: ${wsUrl}`);
+
+      console.log('Attempting to create new WebSocket instance...');
+      wsRef.current = new WebSocket(wsUrl);
+
+      wsRef.current.onopen = () => {
+        console.log('WebSocket connected successfully!');
+        setIsConnected(true);
+      };
+
+      wsRef.current.onmessage = async (event) => {
+        if (event.data instanceof Blob) {
+          // Handle audio data
+          const audioBlob = new Blob([event.data], { type: 'audio/wav' });
+          const audioUrl = URL.createObjectURL(audioBlob);
+          const audio = new Audio(audioUrl);
+          audio.play();
+
+          // Animate audio bars when receiving audio
+          animateAudioBars();
+        } else {
+          // Handle JSON messages
+          const data = JSON.parse(event.data);
+          console.log('Received message:', data);
+
+          if (data.content) {
+            // Display the message in the conversation history or elsewhere
+            // For now, let's just log it and potentially update a state variable if needed
+            console.log('Received message content:', data.content);
+            // You might want to add this message to the conversation history state
+            // setConversationHistory(prev => [...prev, { question: data.content, answer: '', type: QuestionTypes.FREE_TEXT }]); // Example, adjust structure
+          }
+
+          // Update progress and time based on message type
+          if (data.type === 'question' || data.type === 'audio_question') {
+            // Assuming backend sends progress and time in the message
+            if (data.progress !== undefined) {
+               setVoiceProgress(data.progress);
+            }
+            if (data.timeRemaining !== undefined) { // Assuming backend sends timeRemaining
+               setVoiceTimeRemaining(data.timeRemaining);
+            }
+             // If the backend doesn't send progress/time per question, we might need client-side tracking
+             // For now, let's assume backend sends it.
+          }
+
+           if (data.type === 'survey_complete') {
+             // Handle survey completion for voice interface
+             console.log('Voice survey complete');
+             setVoiceProgress(100);
+             setVoiceTimeRemaining(0);
+             stopRecording(); // Stop recording when survey is complete
+             // Keep the connection open briefly to send final data if needed, then disconnect
+             setTimeout(() => disconnect(), 1000); // Disconnect after a short delay
+           }
+           // Potentially handle other message types like 'error', 'instruction', etc.
+        }
+      };
+
+      wsRef.current.onclose = (event) => {
+        console.log(`WebSocket disconnected: ${event.code} ${event.reason}`);
+        setIsConnected(false);
+      };
+
+      wsRef.current.onerror = (error) => {
+        console.error('WebSocket error:', error);
+        setIsConnected(false);
+      };
+
+    } catch (error) {
+      console.error('Error during WebSocket connection attempt:', error);
+    }
+  };
+
+  const disconnect = () => {
+    if (wsRef.current) {
+      wsRef.current.close();
+    }
+    // stopRecording(); // Stop recording is called before disconnect on survey_complete
+    setIsConnected(false);
+    setVoiceProgress(0); // Reset progress on disconnect
+    setVoiceTimeRemaining(0); // Reset time on disconnect
+    // Optionally show a thank you message or redirect
+  };
+
+  const startRecording = async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+
+      // Set up audio context for visualization
+      audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)();
+      analyserRef.current = audioContextRef.current.createAnalyser();
+      const source = audioContextRef.current.createMediaStreamSource(stream);
+      source.connect(analyserRef.current);
+
+      analyserRef.current.fftSize = 64;
+
+      // Start visualization
+      visualizeAudio();
+
+      mediaRecorderRef.current = new MediaRecorder(stream);
+      audioChunksRef.current = [];
+
+      mediaRecorderRef.current.ondataavailable = (event) => {
+        audioChunksRef.current.push(event.data);
+      };
+
+      mediaRecorderRef.current.onstop = () => {
+        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/wav' });
+        sendAudioData(audioBlob);
+        audioChunksRef.current = [];
+      };
+
+      mediaRecorderRef.current.start(1000); // Collect data every second
+      setIsRecording(true);
+      setIsPaused(false);
+
+    } catch (error) {
+      console.error('Error starting recording:', error);
+    }
+  };
+
+  const stopRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+      mediaRecorderRef.current.stop();
+    }
+    if (audioContextRef.current) {
+      // Check if the context is in a valid state before closing
+       if (audioContextRef.current.state !== 'closed') {
+           audioContextRef.current.close();
+       }
+    }
+    if (animationFrameRef.current) {
+      cancelAnimationFrame(animationFrameRef.current);
+    }
+    setIsRecording(false);
+    setIsPaused(false);
+    setAudioBars(Array(12).fill(0));
+    // Do not reset progress or time here, as stopping recording doesn't end the survey
+  };
+
+  const pauseRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'recording') {
+      mediaRecorderRef.current.pause();
+      setIsPaused(true);
+    }
+  };
+
+  const resumeRecording = () => {
+    if (mediaRecorderRef.current && mediaRecorderRef.current.state === 'paused') {
+      mediaRecorderRef.current.resume();
+      setIsPaused(false);
+    }
+  };
+
+  const sendAudioData = (audioBlob: Blob) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      audioBlob.arrayBuffer().then(buffer => {
+        wsRef.current?.send(buffer);
+      });
+    }
+  };
+
+  const visualizeAudio = () => {
+    if (!analyserRef.current) return;
+
+    const bufferLength = analyserRef.current.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+
+    const animate = () => {
+      if (!analyserRef.current) return;
+
+      analyserRef.current.getByteFrequencyData(dataArray);
+
+      // Create bars based on frequency data
+      const bars: number[] = [];
+      const barCount = 12;
+      const step = Math.floor(bufferLength / barCount);
+
+      for (let i = 0; i < barCount; i++) {
+        const value = dataArray[i * step] / 255;
+        bars.push(value);
+      }
+
+      setAudioBars(bars);
+      setAudioLevel(Math.max(...bars)); // You might use audioLevel for something else, like a visual indicator
+
+      animationFrameRef.current = requestAnimationFrame(animate);
+    };
+
+    animate();
+  };
+
+  const animateAudioBars = () => {
+    // Simulate audio visualization when receiving audio
+    let frame = 0;
+    const animate = () => {
+      const bars = Array(12).fill(0).map(() =>
+        Math.random() * 0.8 + 0.2
+      );
+      setAudioBars(bars);
+
+      frame++;
+      if (frame < 30) { // Animate for about 1 second
+        // Using setTimeout with requestAnimationFrame to control duration more predictably
+        setTimeout(() => requestAnimationFrame(animate), 33);
+      } else {
+        setAudioBars(Array(12).fill(0));
+      }
+    };
+    animate();
+  };
+
+  const sendTextMessage = (message: string) => {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({
+        type: 'text_message',
+        content: message
+      }));
+    }
+  };
 
   function toogleIntro() {
     setIntro((prev) => !prev);
@@ -273,31 +400,6 @@ const Page: React.FC<PageProps> = ({ params }) => {
     setProfile((prev) => !prev);
     if (menuOpen) setMenuOpen(false);
   }
-
-  const handleOptionClick = (selectedOption: string) => {
-    // If the option is already selected, remove it
-    if (selectedOptions.includes(selectedOption)) {
-      const newSelectedOptions = selectedOptions.filter(
-        (option) => option !== selectedOption
-      );
-      setSelectedOptions(newSelectedOptions);
-      setFreeTextAnswer(newSelectedOptions.join(", "));
-    } else {
-      const maxChoices =
-        conversation.currentQuestion.current_question?.max_no_of_choices || 1;
-
-      // If the limit is 1, replace the current selection with the new one
-      if (maxChoices === 1) {
-        setSelectedOptions([selectedOption]);
-        setFreeTextAnswer(selectedOption);
-      } else if (selectedOptions.length < maxChoices) {
-        // If the limit allows more selections, add the new one
-        const newSelectedOptions = [...selectedOptions, selectedOption];
-        setSelectedOptions(newSelectedOptions);
-        setFreeTextAnswer(newSelectedOptions.join(", "));
-      }
-    }
-  };
 
   async function handleFeedback(feedback: string) {
     setFeedback(feedback);
@@ -338,29 +440,6 @@ const Page: React.FC<PageProps> = ({ params }) => {
     return typeof contentType === "string" && contentType.startsWith("image/");
   };
 
-  useEffect(() => {
-    const scrollToBottom = () => {
-      if (conversationEndRef.current) {
-        conversationEndRef.current.scrollIntoView({
-          behavior: "smooth",
-          block: "end",
-        });
-      }
-    };
-
-    // 🚀 Ensure that scrolling happens **after** the DOM updates
-    const timeoutId = setTimeout(() => {
-      scrollToBottom();
-
-      // ✅ Additional check: If the scroll missed the bottom, retry after 300ms
-      setTimeout(() => {
-        scrollToBottom();
-      }, 300);
-    }, 150); // 150ms delay before scrolling
-
-    return () => clearTimeout(timeoutId); // Cleanup timeout
-  }, [conversationHistory, conversation.currentQuestion, newMessageLoading]);
-
   //check for login
   useEffect(() => {
     const checkLogin = async () => {
@@ -378,6 +457,20 @@ const Page: React.FC<PageProps> = ({ params }) => {
 
     checkLogin();
   }, []);
+
+  // useEffect to handle countdown of voiceTimeRemaining if needed (depends on backend sending total time initially)
+  // If backend sends remaining time in messages, this might not be necessary.
+  // This effect will run if voiceTimeRemaining is set > 0 by a WebSocket message.
+  useEffect(() => {
+    if (isConnected && voiceTimeRemaining > 0) {
+      const timerId = setInterval(() => {
+        setVoiceTimeRemaining(prevTime => Math.max(0, prevTime - 1));
+      }, 1000 * 60); // Assuming timeRemaining is in minutes
+      return () => clearInterval(timerId);
+    }
+     // Clear interval if component unmounts or dependencies change such that countdown is not needed
+     return () => { /* No cleanup needed here if timerId is not set */ };
+  }, [isConnected, voiceTimeRemaining]); // Depend on isConnected and voiceTimeRemaining
 
   return (
     <>
@@ -430,10 +523,10 @@ const Page: React.FC<PageProps> = ({ params }) => {
               startPoll={startPoll}
             />
 
-            {conversation.conversation_type === "text" ? (
-              <>
-                <div className="relative z-30 shadow-xl bg-[#ffffff] w-full flex flex-col gap-2 justify-between h-svh lg:h-[650px]  overflow-hidden p-5 lg:rounded-2xl lg:translate-y-[-2rem] lg:border lg:border-Yellow">
-                  {/* for restarting the survey */}
+            {/* Simplifying rendering logic to only show voice interface when startPoll is true */}
+            {startPoll ? (
+                <div className="relative z-30 shadow-xl bg-slate-900 w-full flex flex-col gap-2 justify-between h-svh lg:h-[650px]  overflow-hidden p-5 lg:rounded-2xl lg:translate-y-[-2rem] lg:border lg:border-Yellow">
+                {/* for restarting the survey - keeping this popup just in case, though its name is misleading */}
                   {showPopup && (
                     <div className="fixed inset-0 flex items-center justify-center bg-opacity-50 backdrop-blur-sm z-50">
                       <div className="relative bg-white rounded-lg shadow-lg p-6 pt-4 w-[85%]">
@@ -455,13 +548,14 @@ const Page: React.FC<PageProps> = ({ params }) => {
                         <Button
                           type="gradient"
                           label="Restart Survey"
-                          onClick={restartSurvey}
+                          onClick={restartSurvey} // This will reload the page
                           customCss=""
                         />
                       </div>
                     </div>
                   )}
 
+                  {/* End Survey Confirmation Popup */}
                   {stopSurvey && (
                     <div className="fixed inset-0 flex items-center justify-center  bg-opacity-50 backdrop-blur-sm z-50">
                       <div className="bg-white rounded-lg shadow-lg p-6 w-[85%]">
@@ -470,19 +564,19 @@ const Page: React.FC<PageProps> = ({ params }) => {
                         </h2>
                         <p className="text-sm text-gray-600 my-2">
                           Leaving so soon 🙁!! If you can spare a minute, I have
-                          just 2 more questions for you.
+                          just a few more questions for you.
                         </p>
                         <div className="flex items-center justify-between gap-2 mt-4">
                           <Button
                             type="primaryWhite"
                             label="End"
                             customCss=""
-                            onClick={restartSurvey}
+                            onClick={restartSurvey} // End goes to the welcome page (reloads)
                           />
                           <Button
                             type="gradient"
                             label="Continue"
-                            onClick={() => setStopSurvey(false)}
+                            onClick={() => setStopSurvey(false)} // Continue closes the popup
                             customCss=""
                           />
                         </div>
@@ -490,8 +584,153 @@ const Page: React.FC<PageProps> = ({ params }) => {
                     </div>
                   )}
 
-                  {startPoll == false ? (
-                    <>
+                {/* Top bar for voice interface */}
+                <div className=" flex flex-row items-center justify-between">
+                  <div
+                    className="cursor-pointer lg:hidden"
+                    onClick={toggleMenu}
+                  >
+                    <img
+                      src="/images/conversation/menuIcon.svg"
+                      alt="icon"
+                    />
+                  </div>
+                  <div className="flex items-center ">
+                    <div className="flex-shrink-0 w-[100px] overflow-hidden rounded-full bg-gray-200">
+                      <div
+                        className="h-2 rounded-full bg-Golden"
+                        style={{ width: `${voiceProgress}%` }}
+                      />
+                    </div>
+                    <div className="ml-2 text-Golden">
+                       {/* Displaying voice survey progress and time */}
+                      <p className="text-Golden text-exsm font-medium flex items-center justify-center">
+                        {voiceProgress}%{" "}
+                        <span className="px-2 font-bold text-2xl">
+                          ·
+                        </span>{" "}
+                        {voiceTimeRemaining} min
+                      </p>
+                    </div>
+                  </div>
+                  {/* Top bar stop button - linked to voice disconnect */}
+                  {/* Linking to setStopSurvey(true) to show the confirmation popup */}
+                  <button
+                    className=" cursor-pointer p-1.5 bg-red-100 rounded-md lg:ml-auto"
+                    onClick={() => setStopSurvey(true)}
+                  >
+                    <img src="/images/conversation/go.svg" alt="icon" />
+                  </button>
+                </div>
+
+                 {/* Introductory Text before recording */}
+                 {!isRecording && (
+                   <div className="flex flex-col items-center justify-center text-center text-white text-lg px-4 py-8">
+                     <p>Thank you for taking time today.</p>
+                     <p>I would like take 5 mins of your time to get your thoughts about Pollvault.</p>
+                   </div>
+                 )}
+
+                 {/* Content area, might contain messages or instructions */}
+                 {/* Ensure ref is correctly applied with type assertion */}
+                 <div ref={scrollableContainerRef as any} className="overflow-y-scroll no-scrollbar pt-4">
+                    {/* You might want to display messages from the WebSocket here */}
+                    {/* Example: */}
+                    {/* {voiceMessages.map((msg, index) => <div key={index}>{msg.content}</div>)} */}
+                 </div>
+
+                {/* Audio Visualization */}
+                <div className="flex items-end justify-center space-x-1 h-20 mb-4">
+                  {audioBars.map((bar, index) => (
+                    <div
+                      key={index}
+                      className="w-3 rounded-full bg-gradient-to-t from-purple-500 to-blue-500"
+                      style={{
+                        height: `${Math.max(bar * 80, 4)}px`,
+                        opacity: bar > 0 ? 1 : 0.3,
+                        transition: 'height 0.1s ease, opacity 0.1s ease'
+                      }}
+                    />
+                  ))}
+                </div>
+
+                {/* Static buttons */}
+                <div className="flex justify-center items-center space-x-4 py-4">
+                  {/* Aa button */}
+                  <button className="w-12 h-12 rounded-full bg-gray-800 border border-white flex items-center justify-center text-white text-lg">
+                    Aa
+                  </button>
+
+                  {/* Rewind button (Skip) */}
+                  <button
+                    onClick={() => sendTextMessage("Skip")}
+                    disabled={!isConnected || isRecording} // Disable if not connected or currently recording audio
+                    className={`w-12 h-12 rounded-full border border-white flex items-center justify-center text-white text-2xl ${!isConnected || isRecording ? 'bg-gray-700 opacity-50 cursor-not-allowed' : 'bg-gray-800 cursor-pointer'}`}
+                  >
+                    &#x23EE;
+                  </button>
+
+                  {/* Main Record/Pause Button */}
+                  <button
+                    onClick={() => {
+                      if (!isConnected) return; // Should ideally connect first
+
+                      if (isRecording) {
+                        if (isPaused) {
+                          resumeRecording();
+                        } else {
+                          pauseRecording();
+                        }
+                      } else {
+                        startRecording();
+                      }
+                    }}
+                    disabled={!isConnected} // Disable if not connected
+                    className={`w-16 h-16 rounded-full border flex items-center justify-center text-3xl
+                      ${!isConnected ? 'bg-gray-700 border-gray-500 text-gray-400 cursor-not-allowed' : isRecording && !isPaused ? 'bg-white border-white text-purple-800 animate-pulse' : 'bg-gray-300 border-white text-purple-800 cursor-pointer'}
+                    `}
+                  >
+                    {isRecording ? (isPaused ? '▶' : '⏸') : '🎤'} {/* Use icons instead of text? */}
+                  </button>
+
+                  {/* Refresh button (Restart) */}
+                  <button
+                    onClick={() => {
+                      stopRecording();
+                      // Reset other relevant state if needed for a full restart
+                      // setProgress(0); // Assuming you add a progress state
+                      // setCurrentMessage("Ready to start..."); // Assuming you add a message state
+                    }}
+                     disabled={!isRecording && !isPaused} // Only enabled if recording or paused
+                    className={`w-12 h-12 rounded-full border border-white flex items-center justify-center text-white text-2xl ${!isRecording && !isPaused ? 'bg-gray-700 opacity-50 cursor-not-allowed' : 'bg-gray-800 cursor-pointer'}`}
+                  >
+                    &#x23F1;
+                  </button>
+
+                  {/* Stop button (Red) */}
+                  <button
+                    onClick={stopRecording} // This button calls the stopRecording function
+                    disabled={!isRecording && !isPaused} // It is enabled only when recording or paused
+                    className={`w-12 h-12 rounded-full bg-red-600 flex items-center justify-center ${!isRecording && !isPaused ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
+                  >
+                     <div className="w-5 h-5 bg-white rounded-sm"></div>
+                  </button>
+                </div>
+
+                 {/* Add a connect button for initial connection if not connected */}
+                 {!isConnected && (
+                    <button
+                      onClick={connect}
+                      className="mt-4 px-6 py-2 bg-blue-600 text-white rounded-md"
+                    >
+                      Connect to Voice Survey
+                    </button>
+                 )}
+
+              </div>
+            ) : (
+              // Initial state before starting the poll
+              <div className="relative z-30 shadow-xl bg-slate-900 w-full flex flex-col gap-2 justify-between h-svh lg:h-[650px]  overflow-hidden p-5 lg:rounded-2xl lg:translate-y-[-2rem] lg:border lg:border-Yellow">
                       <div>
                         <div>
                           <div aria-hidden="true">
@@ -528,13 +767,13 @@ const Page: React.FC<PageProps> = ({ params }) => {
 
                       <Text
                         variant="h2"
-                        extraCSS="text-[#183D81] capitalize font-medium my-3 leading-9"
+                        extraCSS="text-gray-200 capitalize font-medium my-3 leading-9"
                       >
                         {introductions.title || "Welcome to Survey!"}
                       </Text>
 
-                      <div className="text-Pri-Dark text-msm font-normal">
-                        <p className="text-[16px] font-normal leading-[22px] text-[#183D81]">
+                      <div className="text-white text-msm font-normal">
+                        <p className="text-[16px] font-normal leading-[22px] text-white">
                           <span className="mb-2 block">Hi!</span>
                           {introductions.introduction
                             ? introductions.introduction.length > 150
@@ -542,307 +781,28 @@ const Page: React.FC<PageProps> = ({ params }) => {
                               : introductions.introduction
                             : "We're excited to hear from you."}
                         </p>
-                        <p className="text-[16px] font-normal leading-[22px] text-[#183D81] my-2">
-                          This survey should take about some{" "}
+                        <p className="text-[16px] font-normal leading-[22px] text-white my-2">
+                          This survey should take about some
                           {introductions?.totaltime} minutes let's begin! ✨.
                         </p>
                       </div>
 
-                      {/* social media links */}
-                      {/* <div className="flex flex-col justify-center w-full gap-3 ">
-                        <p className="text-[#183D81]">Acme Ventures</p>
-                        <div>
-                          <div className="flex flex-row justify-start">
-                            <button className="mr-2 hover:rotate-12 active:scale-90">
-                              <img
-                                src="/images/Attachment.svg"
-                                alt=""
-                                className="bg-gray-100 h-10 w-10 border rounded-full p-2 outline-none border-none"
-                              />
-                            </button>
-                            <button className="mr-2 hover:rotate-12 active:scale-90">
-                              <img
-                                src="/images/ri_facebook-fill.svg"
-                                alt=""
-                                className="bg-gray-100 h-10 w-10 border rounded-full p-2 outline-none border-none"
-                              />
-                            </button>
-                            <button className="mr-2 hover:rotate-12 active:scale-90">
-                              <img
-                                src="/images/ri_linkedin-fill.svg"
-                                alt=""
-                                className="bg-gray-100 h-10 w-10 border rounded-full p-2 outline-none border-none"
-                              />
-                            </button>
-                          </div>
-                        </div>
-                      </div> */}
-
                       <div className="w-full flex flex-col flex-grow justify-end ">
-                        {/* <button className="w-full text-center p-4 font-normal text-normal text-Golden mb-2 hover:text-Normal-Blue ">
-                          I have only 5 mins {">>"}
-                        </button> */}
-                        <div className="bg-[#FFFAF0] lg:relative">
+                        <div className="lg:relative">
                           <Button
                             label="Start"
                             type="gradient"
-                            customCss="bg-red-300 rounded-xl w-full"
+                            customCss="rounded-xl w-full"
                             onClick={() => {
-                              startConversation();
+                              connect(); // Call connect instead of startConversation
+                              setStartPoll(true); // Set startPoll to true to show voice interface
                             }}
                             clickAnimation={true}
-                            loading={isStartPollLoading}
+                            loading={isStartPollLoading} // Keep loading state for the button click
                           />
                         </div>
                       </div>
-                    </>
-                  ) : (
-                    <>
-                      <div className=" flex flex-row items-center justify-between">
-                        <div
-                          className="cursor-pointer lg:hidden"
-                          onClick={toggleMenu}
-                        >
-                          <img
-                            src="/images/conversation/menuIcon.svg"
-                            alt="icon"
-                          />
-                        </div>
-                        <div className="flex items-center ">
-                          <div className="flex-shrink-0 w-[100px] overflow-hidden rounded-full bg-gray-200">
-                            <div
-                              className="h-2 rounded-full bg-Golden"
-                              style={{
-                                width: `${noMoreText ? "100%" : conversation.currentQuestion?.current_question?.completion || 0}`,
-                              }}
-                            />
-                          </div>
-                          <div className="ml-2 text-Golden">
-                            {noMoreText ? (
-                              <p className="text-Golden text-exsm font-medium flex items-center justify-center">
-                                100%{" "}
-                                <span className="px-2 font-bold text-2xl">
-                                  ·
-                                </span>{" "}
-                                0 min
-                              </p>
-                            ) : (
-                              <>
-                                <p className="text-Golden text-exsm font-medium flex items-center justify-center">
-                                  {Math.round(
-                                    parseInt(
-                                      conversation.currentQuestion
-                                        ?.current_question?.completion
-                                    )
-                                  ) || 0}
-                                  %{" "}
-                                  <span className="px-2 font-bold text-2xl">
-                                    ·
-                                  </span>{" "}
-                                  {remainingTime} min
-                                </p>
-                              </>
-                            )}
-                          </div>
-                        </div>
-                        <button
-                          className=" cursor-pointer p-1.5 bg-red-100 rounded-md lg:ml-auto"
-                          onClick={() => setStopSurvey(true)}
-                        >
-                          <img src="/images/conversation/go.svg" alt="icon" />
-                        </button>
-                      </div>
-                      <div
-                        ref={scrollableContainerRef}
-                        className="overflow-y-scroll no-scrollbar pt-4"
-                      >
-                         {/* Render previous conversation history */}
-                        {conversationHistory.map((item, index) => (
-                          <div key={index}>
-                            <div className="flex flex-col gap-2 h-full">
-                              <div className="w-[44px] flex justify-start items-end">
-                                <img src="/images/conversation/Squircle.png" alt="icon" />
-                              </div>
-                              <div className="w-full text-[16px] font-normal leading-[22px] text-[#183D81]">
-                                {item.question}
-                              </div>
-                            </div>
-
-                            {/* Render attachments if available */}
-                            <AttachmentComponent attachment={item.attachment} />
-
-                            {/* Render different question types */}
-                            {item.answer && (item.type === QuestionTypes.FREE_TEXT ||  item.type === QuestionTypes.MCQ ) && (
-                              <div className="mt-3 mb-3 flex flex-row h-full justify-end">
-                                <div className="w-max py-2 text-[#183D81] text-end bg-[#FFEFCB] rounded-xl px-4 rounded-br-none">
-                                  {item.answer}
-                                </div>
-                              </div>
-                            )}
-
-                            {item.type === QuestionTypes.RATING && (
-                              <div className="mt-3 mb-6 w-[220px] ml-auto">
-                                <RenderRating
-                                  selectedFormat={item.rating_type}
-                                  ratingValue={item.ratingValue}
-                                  setRatingValue={() => {}}
-                                  itemCount={item.rating_scale?.max}
-                                  readOnly={true}
-                                />
-                              </div>
-                            )}
-                          </div>
-                        ))}
-
-                        {/* new message */}
-                        {newMessageLoading && noMoreText === false ? (
-                          <ChatLoader />
-                        ) : (
-                          conversation.currentQuestion.current_question?.type && ( // ✅ Check if type exists before rendering
-                            <ConversationQuestionComponent
-                              question={conversation.currentQuestion.current_question}
-                              selectedOptions={selectedOptions}
-                              handleOptionClick={handleOptionClick}
-                              ratingValue={ratingValue}
-                              setRatingValue={setRatingValue}
-                            />
-                          )
-                        )}
-
-                        {/* poll end message */}
-                        {noMoreText === true && (
-                          <div className="my-2 w-full flex items-center justify-center flex-col gap-4">
-                            <div className="flex flex-col gap-2 h-full">
-                              <div className="w-[44px] flex justify-start items-end">
-                                <img
-                                  src="/images/conversation/Squircle.png"
-                                  alt=""
-                                />
-                              </div>
-                              <p className="w-full text-[16px] font-normal leading-[22px] text-[#183D81]">
-                                Thank you so much for your time today! I know it
-                                ended up being a bit longer survey, but I really
-                                appreciate your insights. ☺️
-                              </p>
-                            </div>
-                            <div className="w-full flex items-center justify-center">
-                              <img
-                                className="w-[55%] mx-auto"
-                                src="/images/conversation/flagCompleteIcon.svg"
-                                alt="flagIcon"
-                              />
-                            </div>
-                            <div className="flex w-5/6 flex-col py-6  items-center">
-                              <div className="flex w-full flex-row justify-between gap-2">
-                                {feedBacks.map((item, index) => (
-                                  <div key={item.name}>
-                                    <button
-                                      key={item.name}
-                                      className={`${
-                                        item.name === feedBack
-                                          ? "bg-gradient-to-br from-Purple-Grad-Dark-900 to-Purple-Grad-Dark-500 text-white"
-                                          : ""
-                                      } border border-gray-300 flex flex-col items-center justify-center flex-1 rounded-lg  hover:bg-[#FFEFCB] hover:outline-none p-2 `}
-                                      onClick={() => {
-                                        handleFeedback(item.name);
-                                      }}
-                                    >
-                                      <div className="text-medium font-normal">
-                                        {item.value}
-                                      </div>
-                                      <div>
-                                        {feedBack == item.name
-                                          ? item.selectedIcon
-                                          : item.icon}
-                                      </div>
-                                    </button>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                            {/* divider */}
-                            <div className="relative w-full h-[4px] rounded-full overflow-hidden bg-gradient-to-r from-purple-500 via-pink-500 to-blue-500">
-                              {/* Moving Gradient Effect */}
-                              <div className="absolute inset-0 w-full h-full bg-gradient-to-r from-purple-500 via-pink-500 to-blue-500 divider-animate-slide"></div>
-                            </div>
-                            {/* divider */}
-                            <div className="flex w-5/6 flex-col py-6  items-center">
-                              <WaitlistForm
-                                onSuccess={() => {
-                                  setShowConfetti(true); // Show confetti immediately
-                                  setTimeout(() => {
-                                    setShowPopup(true); // Show popup after 2 seconds
-                                    setShowConfetti(false);
-                                  }, 5000);
-                                }}
-                              />
-                            </div>
-                          </div>
-                        )}
-
-                        {/* Add an invisible element at the end to scroll to */}
-                        <div ref={conversationEndRef} />
-                      </div>
-
-                      {/* conversation buttons */}
-                      {questionType === QuestionTypes.MCQ || questionType === QuestionTypes.RATING ? (
-                        <>
-                          <div className="w-full grow flex flex-col items-center justify-end">
-                            {skipable && (
-                              <button
-                                className=" text-blue-800 font-medium p-2 my-2 text-center"
-                                onClick={() => {
-                                  NextQuestion(true);
-                                }}
-                              >
-                                skip question {">>"}
-                              </button>
-                            )}
-
-                            <Button
-                              label="Submit"
-                              onClick={() => {
-                                NextQuestion();
-                              }}
-                              type="gradient"
-                              fullWidth={true}
-                              disabled={questionType === QuestionTypes.MCQ ? selectedOptions.length === 0 : ratingValue === 0}
-                              loading={isSubmitBtnLoading}
-                              customCss="rounded-xl"
-                            />
-                          </div>
-                        </>
-                      ) : (
-                        <div className="w-full grow flex flex-col items-center justify-end">
-                          {skipable === true && (
-                            <button
-                              className=" text-Golden my-2 text-center font-medium p-2"
-                              onClick={() => {
-                                NextQuestion(true);
-                              }}
-                            >
-                              skip question {">>"}
-                            </button>
-                          )}
-                          {!noMoreText && (
-                            <ConversationInput isInputBtnLoading={isInputBtnLoading} freeTextAnswer={freeTextAnswer} setFreeTextAnswer={setFreeTextAnswer}  NextQuestion={NextQuestion}/>
-                          )}
-                        </div>
-                      )}
-                    </>
-                  )}
                 </div>
-              </>
-            ) : (
-              <>
-                <SpeechComponent
-                  question_type={
-                    conversation.currentQuestion.current_question.type
-                  }
-                  conversation_id={params.conversation_id}
-                  unique_id={uniqueId}
-                />
-              </>
             )}
 
             <Reference profile={profile} toogleProfile={toogleProfile} />
