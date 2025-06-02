@@ -21,6 +21,7 @@
     "paths": {
       "@/*": ["./src/*"],
       "@components/*": ["./components/*"],
+      "~/*": ["./deer-flow-main/web/src/*"]
     }
   },
   "include": [
@@ -33,6 +34,9 @@
     "src/app/polls/[pollid]/page.tsx",
     "src/app/polls/[pollid]/components/ResultComponents/LIneChart.jsx",
     "src/app/sample/page.tsx"
-, "public/pdfjs-worker.js"  ],
+, "public/pdfjs-worker.js",
+    "deer-flow-main/web/src/**/*.ts",
+    "deer-flow-main/web/src/**/*.tsx"
+  ],
   "exclude": ["node_modules"]
 }
