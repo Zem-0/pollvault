@@ -1,6 +1,8 @@
 // Copyright (c) 2025 Bytedance Ltd. and/or its affiliates
 // SPDX-License-Identifier: MIT
 
+"use client";
+
 import { motion } from "framer-motion";
 import { FastForward, Play } from "lucide-react";
 import { useCallback, useRef, useState } from "react";
@@ -26,7 +28,11 @@ import { InputBox } from "./input-box";
 import { MessageListView } from "./message-list-view";
 import { Welcome } from "./welcome";
 
-export function MessagesBlock({ className }: { className?: string }) {
+interface MessagesBlockProps {
+  className?: string;
+}
+
+export function MessagesBlock({ className }: MessagesBlockProps) {
   const messageIds = useMessageIds();
   const messageCount = messageIds.length;
   const responding = useStore((state) => state.responding);
@@ -35,6 +41,7 @@ export function MessagesBlock({ className }: { className?: string }) {
   const [replayStarted, setReplayStarted] = useState(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [feedback, setFeedback] = useState<{ option: Option } | null>(null);
+
   const handleSend = useCallback(
     async (message: string, options?: { interruptFeedback?: string }) => {
       const abortController = new AbortController();
@@ -54,35 +61,50 @@ export function MessagesBlock({ className }: { className?: string }) {
     },
     [feedback],
   );
+
+  const onSendMessage = useCallback(
+    async (message: string, options?: { interruptFeedback?: string }) => {
+      await handleSend(message, options);
+    },
+    [handleSend]
+  );
+
   const handleCancel = useCallback(() => {
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
   }, []);
+
   const handleFeedback = useCallback(
     (feedback: { option: Option }) => {
       setFeedback(feedback);
     },
     [setFeedback],
   );
+
   const handleRemoveFeedback = useCallback(() => {
     setFeedback(null);
   }, [setFeedback]);
+
   const handleStartReplay = useCallback(() => {
     setReplayStarted(true);
     void sendMessage();
   }, [setReplayStarted]);
+
   const [fastForwarding, setFastForwarding] = useState(false);
   const handleFastForwardReplay = useCallback(() => {
     setFastForwarding(!fastForwarding);
     fastForwardReplay(!fastForwarding);
   }, [fastForwarding]);
+
+  const messages = useStore((state) => state.messages);
+  const isResponding = useStore((state) => state.isResponding);
+
   return (
     <div className={cn("flex h-full flex-col", className)}>
-      <MessageListView
-        className="flex flex-grow"
-        onFeedback={handleFeedback}
-        onSendMessage={handleSend}
-      />
+      <div className="flex-1 overflow-y-auto">
+        {/* Pass onSendMessage and onFeedback to MessageListView */}
+        <MessageListView onSendMessage={onSendMessage} onFeedback={handleFeedback} />
+      </div>
       {!isReplay ? (
         <div className="relative flex pb-4">
           {!responding && messageCount === 0 && (

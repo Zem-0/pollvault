@@ -4,7 +4,6 @@
 "use client";
 
 import { useMemo } from "react";
-
 import { useStore } from "~/core/store";
 import { cn } from "~/lib/utils";
 
@@ -12,11 +11,13 @@ import { MessagesBlock } from "./components/messages-block";
 import { ResearchBlock } from "./components/research-block";
 
 export default function Main() {
-  const openResearchId = useStore((state) => state.openResearchId);
+  const research = useStore((state) => state.research);
+  console.log("Main component research state:", research);
   const doubleColumnMode = useMemo(
-    () => openResearchId !== null,
-    [openResearchId],
+    () => research !== null,
+    [research],
   );
+  
   return (
     <div
       className={cn(
@@ -38,7 +39,7 @@ export default function Main() {
           !doubleColumnMode && "scale-0",
           doubleColumnMode && "",
         )}
-        researchId={openResearchId}
+        researchId={research?.id}
       />
     </div>
   );

@@ -13,6 +13,7 @@ import { Button } from "~/components/ui/button";
 import { Logo } from "../../components/deer-flow/logo";
 import { ThemeToggle } from "../../components/deer-flow/theme-toggle";
 import { Tooltip } from "../../components/deer-flow/tooltip";
+import AnalyzeHeader from "../analyze/[pollid]/AnalyzeHeader";
 
 const Main = dynamic(() => import("./main"), {
   ssr: false,
@@ -25,26 +26,20 @@ const Main = dynamic(() => import("./main"), {
 
 export default function HomePage() {
   return (
-    <div className="flex h-screen w-screen justify-center overscroll-none">
+    <div className="flex flex-col h-screen w-screen overscroll-none">
       <header className="fixed top-0 left-0 flex h-12 w-full items-center justify-between px-4">
-        <Logo />
         <div className="flex items-center">
-          <Tooltip title="Star DeerFlow on GitHub">
-            <Button variant="ghost" size="icon" asChild>
-              <Link
-                href="https://github.com/bytedance/deer-flow"
-                target="_blank"
-              >
-                <GithubOutlined />
-              </Link>
-            </Button>
-          </Tooltip>
-          <ThemeToggle />
+  
           <Suspense>
           </Suspense>
         </div>
       </header>
-      <Main />
+      
+      <AnalyzeHeader id={"deerflow"} title={"DeerFlow"} />
+
+      <div className="flex-1">
+        <Main />
+      </div>
     </div>
   );
 }

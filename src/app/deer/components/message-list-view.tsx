@@ -51,28 +51,13 @@ export function MessageListView({
 }) {
   const scrollContainerRef = useRef<ScrollContainerRef>(null);
   const messageIds = useMessageIds();
-  const interruptMessage = useLastInterruptMessage();
-  const waitingForFeedbackMessageId = useLastFeedbackMessageId();
   const responding = useStore((state) => state.responding);
-  const noOngoingResearch = useStore(
-    (state) => state.ongoingResearchId === null,
+  const waitingForFeedbackMessageId = useLastFeedbackMessageId();
+  const interruptMessage = useLastInterruptMessage();
+  const ongoingResearchId = useStore((state) => state.ongoingResearchId);
+  const ongoingResearchIsOpen = useStore((state) =>
+    state.openResearchId === ongoingResearchId
   );
-  const ongoingResearchIsOpen = useStore(
-    (state) => state.ongoingResearchId === state.openResearchId,
-  );
-
-  const handleToggleResearch = useCallback(() => {
-    // Fix the issue where auto-scrolling to the bottom
-    // occasionally fails when toggling research.
-    const timer = setTimeout(() => {
-      if (scrollContainerRef.current) {
-        scrollContainerRef.current.scrollToBottom();
-      }
-    }, 500);
-    return () => {
-      clearTimeout(timer);
-    };
-  }, []);
 
   return (
     <ScrollContainer
@@ -90,12 +75,11 @@ export function MessageListView({
             interruptMessage={interruptMessage}
             onFeedback={onFeedback}
             onSendMessage={onSendMessage}
-            onToggleResearch={handleToggleResearch}
           />
         ))}
         <div className="flex h-8 w-full shrink-0"></div>
       </ul>
-      {responding && (noOngoingResearch || !ongoingResearchIsOpen) && (
+      {responding && (ongoingResearchId === null || !ongoingResearchIsOpen) && (
         <LoadingAnimation className="ml-4" />
       )}
     </ScrollContainer>
@@ -109,7 +93,6 @@ function MessageListItem({
   interruptMessage,
   onFeedback,
   onSendMessage,
-  onToggleResearch,
 }: {
   className?: string;
   messageId: string;
@@ -120,7 +103,6 @@ function MessageListItem({
     message: string,
     options?: { interruptFeedback?: string },
   ) => void;
-  onToggleResearch?: () => void;
 }) {
   const message = useMessage(messageId);
   const researchIds = useStore((state) => state.researchIds);
@@ -158,8 +140,8 @@ function MessageListItem({
         content = (
           <div className="w-full px-3">
             <ResearchCard
+              className="w-full"
               researchId={message.id}
-              onToggleResearch={onToggleResearch}
             />
           </div>
         );
@@ -229,16 +211,14 @@ function MessageBubble({
 function ResearchCard({
   className,
   researchId,
-  onToggleResearch,
 }: {
   className?: string;
   researchId: string;
-  onToggleResearch?: () => void;
 }) {
   const reportId = useStore((state) => state.researchReportIds.get(researchId));
   const hasReport = reportId !== undefined;
   const reportGenerating = useStore(
-    (state) => hasReport && state.messages.get(reportId)!.isStreaming,
+    (state) => hasReport && state.messages.find(m => m.id === reportId)?.isStreaming
   );
   const openResearchId = useStore((state) => state.openResearchId);
   const state = useMemo(() => {
@@ -260,8 +240,7 @@ function ResearchCard({
     } else {
       openResearch(researchId);
     }
-    onToggleResearch?.();
-  }, [openResearchId, researchId, onToggleResearch]);
+  }, [openResearchId, researchId]);
   return (
     <Card className={cn("w-full", className)}>
       <CardHeader>

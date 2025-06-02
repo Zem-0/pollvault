@@ -15,63 +15,71 @@ import { getChatStreamSettings } from "./settings-store";
 
 const THREAD_ID = nanoid();
 
-export const useStore = create<{
+export interface Research {
+  id: string;
+  messages: Message[];
+}
+
+interface Store {
+  messages: Message[];
+  research: Research | null;
+  isResponding: boolean;
   responding: boolean;
   threadId: string | undefined;
   messageIds: string[];
-  messages: Map<string, Message>;
   researchIds: string[];
   researchPlanIds: Map<string, string>;
   researchReportIds: Map<string, string>;
   researchActivityIds: Map<string, string[]>;
   ongoingResearchId: string | null;
   openResearchId: string | null;
-
-  appendMessage: (message: Message) => void;
+  
+  // Actions
+  addMessage: (message: Message) => void;
   updateMessage: (message: Message) => void;
-  updateMessages: (messages: Message[]) => void;
+  setResearch: (research: Research | null) => void;
+  setResponding: (isResponding: boolean) => void;
   openResearch: (researchId: string | null) => void;
   closeResearch: () => void;
   setOngoingResearch: (researchId: string | null) => void;
-}>((set) => ({
+}
+
+export const useStore = create<Store>((set) => ({
+  messages: [],
+  research: null,
+  isResponding: false,
   responding: false,
   threadId: THREAD_ID,
   messageIds: [],
-  messages: new Map<string, Message>(),
   researchIds: [],
-  researchPlanIds: new Map<string, string>(),
-  researchReportIds: new Map<string, string>(),
-  researchActivityIds: new Map<string, string[]>(),
+  researchPlanIds: new Map(),
+  researchReportIds: new Map(),
+  researchActivityIds: new Map(),
   ongoingResearchId: null,
   openResearchId: null,
 
-  appendMessage(message: Message) {
+  addMessage: (message) => 
     set((state) => ({
-      messageIds: [...state.messageIds, message.id],
-      messages: new Map(state.messages).set(message.id, message),
-    }));
-  },
-  updateMessage(message: Message) {
+      messages: [...state.messages, message],
+      messageIds: [...state.messageIds, message.id]
+    })),
+
+  updateMessage: (message) =>
     set((state) => ({
-      messages: new Map(state.messages).set(message.id, message),
-    }));
-  },
-  updateMessages(messages: Message[]) {
-    set((state) => {
-      const newMessages = new Map(state.messages);
-      messages.forEach((m) => newMessages.set(m.id, m));
-      return { messages: newMessages };
-    });
-  },
-  openResearch(researchId: string | null) {
-    set({ openResearchId: researchId });
-  },
-  closeResearch() {
-    set({ openResearchId: null });
-  },
-  setOngoingResearch(researchId: string | null) {
-    set({ ongoingResearchId: researchId });
-  },
+      messages: state.messages.map((m) => 
+        m.id === message.id ? message : m
+      )
+    })),
+
+  setResearch: (research) => set({ research }),
+
+  setResponding: (isResponding) => set({ responding: isResponding }),
+
+  openResearch: (researchId) => set({ openResearchId: researchId }),
+
+  closeResearch: () => set({ openResearchId: null }),
+
+  setOngoingResearch: (researchId) => set({ ongoingResearchId: researchId }),
 }));
 
 export async function sendMessage(
@@ -168,18 +176,16 @@ function existsMessage(id: string) {
 }
 
 function getMessage(id: string) {
-  return useStore.getState().messages.get(id);
+  return useStore.getState().messages.find((m) => m.id === id);
 }
 
 function findMessageByToolCallId(toolCallId: string) {
-  return Array.from(useStore.getState().messages.values())
-    .reverse()
-    .find((message) => {
-      if (message.toolCalls) {
-        return message.toolCalls.some((toolCall) => toolCall.id === toolCallId);
-      }
-      return false;
-    });
+  return useStore.getState().messages.reverse().find((message) => {
+    if (message.toolCalls) {
+      return message.toolCalls.some((toolCall) => toolCall.id === toolCallId);
+    }
+    return false;
+  });
 }
 
 function appendMessage(message: Message) {
@@ -195,7 +201,7 @@ function appendMessage(message: Message) {
     }
     appendResearchActivity(message);
   }
-  useStore.getState().appendMessage(message);
+  useStore.getState().addMessage(message);
 }
 
 function updateMessage(message: Message) {
@@ -225,6 +231,14 @@ function appendResearch(researchId: string) {
   }
   const messageIds = [researchId];
   messageIds.unshift(planMessage!.id);
+  
+  // Create and set the research object in the store
+  const newResearch: Research = {
+    id: researchId,
+    messages: [planMessage!],
+  };
+  useStore.getState().setResearch(newResearch);
+
   useStore.setState({
     ongoingResearchId: researchId,
     researchIds: [...useStore.getState().researchIds, researchId],
@@ -305,27 +319,30 @@ export async function listenToPodcast(researchId: string) {
       } catch (e) {
         console.error(e);
         useStore.setState((state) => ({
-          messages: new Map(useStore.getState().messages).set(
-            podCastMessageId,
+          messages: [
+            ...state.messages,
             {
-              ...state.messages.get(podCastMessageId)!,
+              ...state.messages.find((m) => m.id === podCastMessageId)!,
               content: JSON.stringify({
                 ...podcastObject,
                 error: e instanceof Error ? e.message : "Unknown error",
               }),
               isStreaming: false,
             },
-          ),
+          ],
         }));
         toast("An error occurred while generating podcast. Please try again.");
         return;
       }
       useStore.setState((state) => ({
-        messages: new Map(useStore.getState().messages).set(podCastMessageId, {
-          ...state.messages.get(podCastMessageId)!,
-          content: JSON.stringify({ ...podcastObject, audioUrl }),
-          isStreaming: false,
-        }),
+        messages: [
+          ...state.messages,
+          {
+            ...state.messages.find((m) => m.id === podCastMessageId)!,
+            content: JSON.stringify({ ...podcastObject, audioUrl }),
+            isStreaming: false,
+          },
+        ],
       }));
     }
   }
@@ -335,7 +352,7 @@ export function useResearchMessage(researchId: string) {
   return useStore(
     useShallow((state) => {
       const messageId = state.researchPlanIds.get(researchId);
-      return messageId ? state.messages.get(messageId) : undefined;
+      return messageId ? state.messages.find((m) => m.id === messageId) : undefined;
     }),
   );
 }
@@ -343,7 +360,7 @@ export function useResearchMessage(researchId: string) {
 export function useMessage(messageId: string | null | undefined) {
   return useStore(
     useShallow((state) =>
-      messageId ? state.messages.get(messageId) : undefined,
+      messageId ? state.messages.find((m) => m.id === messageId) : undefined,
     ),
   );
 }
@@ -356,9 +373,7 @@ export function useLastInterruptMessage() {
   return useStore(
     useShallow((state) => {
       if (state.messageIds.length >= 2) {
-        const lastMessage = state.messages.get(
-          state.messageIds[state.messageIds.length - 1]!,
-        );
+        const lastMessage = state.messages.find((m) => m.id === state.messageIds[state.messageIds.length - 1]);
         return lastMessage?.finishReason === "interrupt" ? lastMessage : null;
       }
       return null;
@@ -370,9 +385,7 @@ export function useLastFeedbackMessageId() {
   const waitingForFeedbackMessageId = useStore(
     useShallow((state) => {
       if (state.messageIds.length >= 2) {
-        const lastMessage = state.messages.get(
-          state.messageIds[state.messageIds.length - 1]!,
-        );
+        const lastMessage = state.messages.find((m) => m.id === state.messageIds[state.messageIds.length - 1]);
         if (lastMessage && lastMessage.finishReason === "interrupt") {
           return state.messageIds[state.messageIds.length - 2];
         }
