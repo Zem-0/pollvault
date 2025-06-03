@@ -14,6 +14,7 @@ import { Logo } from "../../components/deer-flow/logo";
 import { ThemeToggle } from "../../components/deer-flow/theme-toggle";
 import { Tooltip } from "../../components/deer-flow/tooltip";
 import AnalyzeHeader from "../analyze/[pollid]/AnalyzeHeader";
+import Sidebar from "./components/Sidebar";
 
 const Main = dynamic(() => import("./main"), {
   ssr: false,
@@ -29,7 +30,6 @@ export default function HomePage() {
     <div className="flex flex-col h-screen w-screen overscroll-none">
       <header className="fixed top-0 left-0 flex h-12 w-full items-center justify-between px-4">
         <div className="flex items-center">
-  
           <Suspense>
           </Suspense>
         </div>
@@ -37,8 +37,13 @@ export default function HomePage() {
       
       <AnalyzeHeader id={"deerflow"} title={"DeerFlow"} />
 
-      <div className="flex-1">
-        <Main />
+      <div className="flex-1 flex gap-0">
+        <div>
+          <Sidebar />
+        </div>
+        <div className="flex-1">
+          <Main />
+        </div>
       </div>
     </div>
   );

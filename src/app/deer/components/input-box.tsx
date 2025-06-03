@@ -36,17 +36,23 @@ export function InputBox({ disabled, className, responding, feedback, onSend, on
   };
 
   return (
-    <form onSubmit={handleSubmit} className={cn("flex gap-2", className)}>
+    <form
+      onSubmit={handleSubmit}
+      className={cn(
+        "flex items-center gap-2 rounded-full border border-gray-300 px-4 py-2 shadow-sm",
+        className
+      )}
+    >
       <Input
         value={message}
         onChange={(e) => setMessage(e.target.value)}
-        placeholder="Type your message..."
+        placeholder="Ask me something"
         disabled={disabled}
-        className="flex-1"
+        className="flex-1 border-none focus-visible:ring-0 shadow-none"
       />
-      <Button type="submit" disabled={disabled || !message.trim()}>
-        Send
-      </Button>
+      <div className="text-purple-600">
+        <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" className="lucide lucide-filter"><polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/></svg>
+      </div>
     </form>
   );
 }
